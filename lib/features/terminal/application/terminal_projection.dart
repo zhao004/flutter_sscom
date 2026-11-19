@@ -8,8 +8,13 @@ import 'terminal_view_state.dart';
 ///
 /// 文本投影会暂存不完整的 UTF-8 尾部，确保多字节字符跨批次时仍能正确解码。
 final class TerminalProjection {
-  /// 创建受行数上限约束的终端投影。
-  TerminalProjection({required this.maxLines, required this.hexBytesPerLine}) {
+  /// 创建受行数、单行长度和总文本容量约束的终端投影。
+  TerminalProjection({
+    required this.maxLines,
+    required this.hexBytesPerLine,
+    this.maxTextLineCodeUnits = 4096,
+    this.maxTextCodeUnits = 256 * 1024,
+  }) {
     if (maxLines <= 0) {
       throw ArgumentError.value(maxLines, 'maxLines', '最大行数必须大于 0');
     }
@@ -20,6 +25,9 @@ final class TerminalProjection {
         'HEX 每行字节数必须在 1 到 64 之间',
       );
     }
+    if (maxTextLineCodeUnits < 2 || maxTextCodeUnits < maxTextLineCodeUnits) {
+      throw ArgumentError('文本单行容量至少为 2，且不能超过总容量');
+    }
   }
 
   /// 每种视图最多保留的行数。
@@ -27,6 +35,12 @@ final class TerminalProjection {
 
   /// HEX 每行字节数。
   final int hexBytesPerLine;
+
+  /// 单行 UTF-16 码元上限；超出时按完整字符折行为新行。
+  final int maxTextLineCodeUnits;
+
+  /// 已提交行与当前行合计的 UTF-16 码元上限。
+  final int maxTextCodeUnits;
 
   final Queue<TerminalLine> _textLines = Queue<TerminalLine>();
   final Queue<TerminalLine> _hexLines = Queue<TerminalLine>();
@@ -41,6 +55,7 @@ final class TerminalProjection {
   int _currentHexLineOffset = 0;
   int _textDroppedLines = 0;
   int _hexDroppedLines = 0;
+  int _retainedTextCodeUnits = 0;
   bool _previousWasCarriageReturn = false;
 
   /// 追加一批原始字节。
@@ -85,6 +100,7 @@ final class TerminalProjection {
     _currentHexLineOffset = 0;
     _textDroppedLines = 0;
     _hexDroppedLines = 0;
+    _retainedTextCodeUnits = 0;
     _previousWasCarriageReturn = false;
   }
 
@@ -129,8 +145,14 @@ final class TerminalProjection {
       }
 
       _previousWasCarriageReturn = false;
+      final codeUnits = rune > 0xFFFF ? 2 : 1;
+      if (_currentText.length + codeUnits > maxTextLineCodeUnits) {
+        _commitTextLine();
+      }
       _ensureTextTimestamp(receivedAt);
       _currentText.writeCharCode(rune);
+      _retainedTextCodeUnits += codeUnits;
+      _trimTextCapacity();
     }
     _textOffset += completeLength;
   }
@@ -218,12 +240,20 @@ final class TerminalProjection {
 
   void _trimQueue(Queue<TerminalLine> queue, {required bool isText}) {
     while (queue.length > maxLines) {
-      queue.removeFirst();
+      final removed = queue.removeFirst();
       if (isText) {
+        _retainedTextCodeUnits -= removed.text.length;
         _textDroppedLines++;
       } else {
         _hexDroppedLines++;
       }
+    }
+  }
+
+  void _trimTextCapacity() {
+    while (_retainedTextCodeUnits > maxTextCodeUnits && _textLines.isNotEmpty) {
+      _retainedTextCodeUnits -= _textLines.removeFirst().text.length;
+      _textDroppedLines++;
     }
   }
 

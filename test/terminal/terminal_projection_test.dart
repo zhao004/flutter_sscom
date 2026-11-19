@@ -7,6 +7,52 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('TerminalProjection', () {
+    test('总容量包含当前行且折行不会拆开 UTF-16 代理对', () {
+      final projection = TerminalProjection(
+        maxLines: 100,
+        hexBytesPerLine: 16,
+        maxTextLineCodeUnits: 5,
+        maxTextCodeUnits: 9,
+      );
+      final now = DateTime(2026);
+      for (var index = 0; index < 20; index++) {
+        projection.append(Uint8List.fromList(utf8.encode('😀你')), now);
+        final lines = projection.snapshot(TerminalDisplayMode.text);
+        expect(
+          lines.fold<int>(0, (sum, line) => sum + line.text.length),
+          lessThanOrEqualTo(9),
+        );
+        for (final line in lines) {
+          expect(line.text.length, lessThanOrEqualTo(5));
+          expect(utf8.decode(utf8.encode(line.text)), line.text);
+        }
+      }
+      expect(projection.droppedLines(TerminalDisplayMode.text), greaterThan(0));
+      projection.clear();
+      projection.append(Uint8List.fromList(utf8.encode('新\r\n行')), now);
+      expect(
+        projection.snapshot(TerminalDisplayMode.text).map((line) => line.text),
+        ['新', '行'],
+      );
+      expect(projection.droppedLines(TerminalDisplayMode.text), 0);
+    });
+
+    test('持续无换行输入在 HEX 模式下仍受单行和总文本容量限制', () {
+      final projection = TerminalProjection(maxLines: 10, hexBytesPerLine: 16);
+      final batch = Uint8List.fromList(List<int>.filled(16384, 0x61));
+      for (var index = 0; index < 40; index++) {
+        projection.append(batch, DateTime(2026));
+        projection.snapshot(TerminalDisplayMode.hex);
+      }
+      final lines = projection.snapshot(TerminalDisplayMode.text);
+      expect(lines.every((line) => line.text.length <= 4096), isTrue);
+      expect(
+        lines.fold<int>(0, (sum, line) => sum + line.text.length),
+        lessThanOrEqualTo(256 * 1024),
+      );
+      expect(projection.droppedLines(TerminalDisplayMode.text), greaterThan(0));
+    });
+
     test('跨批次保留不完整 UTF-8 字节并正确合成多字节字符', () {
       final projection = TerminalProjection(maxLines: 10, hexBytesPerLine: 4);
       final bytes = Uint8List.fromList(utf8.encode('你'));
