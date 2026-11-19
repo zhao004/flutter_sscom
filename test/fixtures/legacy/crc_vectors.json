@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "kind": "static-derived",
+    "sourceFunction": "0x401BAC",
+    "crc32TableGenerator": "0x401378",
+    "runtimeConfirmed": false,
+    "note": "Vectors match the decompiled algorithm and standard algorithm cross-checks."
+  },
+  "checksumModes": [
+    {
+      "index": 0,
+      "id": "none",
+      "description": "No checksum insertion."
+    },
+    {
+      "index": 1,
+      "id": "modbus-crc16",
+      "description": "CRC-16/MODBUS, low byte then high byte."
+    },
+    {
+      "index": 2,
+      "id": "ccitt-crc16-init0",
+      "description": "CRC-16/CCITT polynomial 0x1021, initial 0, low byte then high byte."
+    },
+    {
+      "index": 3,
+      "id": "crc32",
+      "description": "Reflected CRC-32 polynomial 0xEDB88320, initial/final XOR 0xFFFFFFFF, little-endian bytes."
+    },
+    {
+      "index": 4,
+      "id": "add8-twos-complement",
+      "description": "Two's complement of the 8-bit sum."
+    },
+    {
+      "index": 5,
+      "id": "add8",
+      "description": "Low 8 bits of the byte sum."
+    },
+    {
+      "index": 6,
+      "id": "xor8",
+      "description": "XOR of all selected bytes."
+    },
+    {
+      "index": 7,
+      "id": "add16",
+      "description": "16-bit byte sum, high byte then low byte."
+    }
+  ],
+  "vectors": [
+    {
+      "id": "ascii-digits-modbus",
+      "checksumIndex": 1,
+      "inputAscii": "123456789",
+      "expectedHex": "37 4B"
+    },
+    {
+      "id": "ascii-digits-ccitt",
+      "checksumIndex": 2,
+      "inputAscii": "123456789",
+      "expectedHex": "C3 31"
+    },
+    {
+      "id": "ascii-digits-crc32",
+      "checksumIndex": 3,
+      "inputAscii": "123456789",
+      "expectedHex": "26 39 F4 CB"
+    },
+    {
+      "id": "ascii-digits-add8-twos",
+      "checksumIndex": 4,
+      "inputAscii": "123456789",
+      "expectedHex": "23"
+    },
+    {
+      "id": "ascii-digits-add8",
+      "checksumIndex": 5,
+      "inputAscii": "123456789",
+      "expectedHex": "DD"
+    },
+    {
+      "id": "ascii-digits-xor8",
+      "checksumIndex": 6,
+      "inputAscii": "123456789",
+      "expectedHex": "31"
+    },
+    {
+      "id": "ascii-digits-add16",
+      "checksumIndex": 7,
+      "inputAscii": "123456789",
+      "expectedHex": "01 DD"
+    },
+    {
+      "id": "binary-00010203-modbus",
+      "checksumIndex": 1,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "10 85"
+    },
+    {
+      "id": "binary-00010203-ccitt",
+      "checksumIndex": 2,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "31 61"
+    },
+    {
+      "id": "binary-00010203-crc32",
+      "checksumIndex": 3,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "13 86 B9 8B"
+    },
+    {
+      "id": "binary-00010203-add8-twos",
+      "checksumIndex": 4,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "FA"
+    },
+    {
+      "id": "binary-00010203-add8",
+      "checksumIndex": 5,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "06"
+    },
+    {
+      "id": "binary-00010203-xor8",
+      "checksumIndex": 6,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "00"
+    },
+    {
+      "id": "binary-00010203-add16",
+      "checksumIndex": 7,
+      "inputHex": "00 01 02 03",
+      "expectedHex": "00 06"
+    }
+  ]
+}

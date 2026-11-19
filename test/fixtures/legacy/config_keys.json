@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "pattern": "N1..N99",
+      "format": "A|H,<payload>",
+      "meaning": "Multi-send entry payload; A=ANSI text, H=HEX text."
+    },
+    {
+      "pattern": "N101..N199",
+      "format": "<enabled>,<name>,<intervalMs>",
+      "meaning": "Multi-send entry metadata; enabled uses numeric 0/1 in the snapshot."
+    },
+    {
+      "key": "N1051",
+      "meaning": "File send delay in milliseconds per 256-byte block."
+    },
+    {
+      "key": "N1052",
+      "meaning": "Last selected file path."
+    },
+    {
+      "key": "N1053",
+      "meaning": "Main text payload. Physical comma, CR and LF are encoded as bytes 0x02, 0x03 and 0x04."
+    },
+    {
+      "key": "N1054",
+      "meaning": "Main HEX payload. Line-breaking characters use the same 0x02/0x03/0x04 storage escapes."
+    },
+    {
+      "key": "N1055",
+      "meaning": "Main send mode: H=HEX, A=ANSI text."
+    },
+    {
+      "key": "N1056",
+      "meaning": "Main repeated-send interval in milliseconds."
+    },
+    {
+      "key": "N1057",
+      "meaning": "Append configured newline on main send: Y/N."
+    },
+    {
+      "key": "N1058",
+      "meaning": "Multi-send interval in milliseconds."
+    },
+    {
+      "key": "N1059",
+      "meaning": "Receive display as HEX: Y/N."
+    },
+    {
+      "key": "N1060",
+      "meaning": "Checksum mode index. Binary supports 0..7; legacy INI comment is incomplete and conflicts with the implementation."
+    },
+    {
+      "key": "N1061",
+      "meaning": "Saved DTR state: Y/N."
+    },
+    {
+      "key": "N1062",
+      "meaning": "Saved RTS state: Y/N."
+    },
+    {
+      "key": "N1063",
+      "meaning": "Open serial port on startup: Y/N."
+    },
+    {
+      "key": "N1064",
+      "meaning": "Enable packet splitting by idle timeout: Y/N."
+    },
+    {
+      "key": "N1065",
+      "meaning": "Packet-splitting timeout in milliseconds."
+    },
+    {
+      "key": "N1066",
+      "meaning": "Receive window background color as an integer color value."
+    },
+    {
+      "key": "N1067",
+      "meaning": "Receive-buffer threshold. UI exposes 200000, 500000, 1000000, 2000000 and 5000000; 10M/20M are only mentioned in the INI comment."
+    },
+    {
+      "key": "N1068",
+      "meaning": "TCP/UDP remote IP address."
+    },
+    {
+      "key": "N1069",
+      "meaning": "TCP remote port or UDP remote port."
+    },
+    {
+      "key": "N1070",
+      "meaning": "TCP server or UDP local port."
+    },
+    {
+      "key": "N1071",
+      "meaning": "Send line on Enter with echo: Y/N."
+    },
+    {
+      "key": "N1072",
+      "meaning": "Send key value immediately: Y/N."
+    },
+    {
+      "key": "N1073",
+      "meaning": "Echo input: Y/N."
+    },
+    {
+      "key": "N1074",
+      "meaning": "One-based first byte included in checksum calculation."
+    },
+    {
+      "key": "N1075",
+      "meaning": "Checksum insertion offset from payload end: 0=after final byte, 1=before final byte, and so on."
+    },
+    {
+      "key": "N1076",
+      "meaning": "Terminal Enter handling automatically appends LF after CR: Y/N."
+    },
+    {
+      "key": "N1080",
+      "meaning": "Connection target: COM port name for serial, or numeric network mode 1=TCP client, 2=TCP server, 3=UDP."
+    },
+    {
+      "key": "N1081",
+      "meaning": "Baud rate; known presets are matched first, otherwise parsed as a custom integer."
+    },
+    {
+      "key": "N1082..N1087",
+      "meaning": "Window geometry, splitter position and multi-send button width."
+    },
+    {
+      "key": "N1088..N1090",
+      "meaning": "Saved terminal font name, size and color."
+    },
+    {
+      "key": "N1100",
+      "meaning": "Saved language label; runtime mapping is C/E in comments, while this snapshot stores a localized Chinese label."
+    }
+  ]
+}

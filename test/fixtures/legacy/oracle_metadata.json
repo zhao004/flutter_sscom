@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "analysisDate": "2026-11-09",
+  "binary": {
+    "name": "sscom5.13.1.exe",
+    "sha256": "51EA245A3D07436A86A4449B2791C1F37FA60E181DD128E8D7DD79CC1AD836CE",
+    "packer": "ASPack",
+    "packedIdaFunctionCount": 72,
+    "unpackedName": "unpacked_sscom5.13.1.exe",
+    "unpackedSha256": "8B58B347886D640AAC25A8D7C8C9AFF009D7B34FF71B19007D9ACFF840B8D9FD",
+    "unpackedIdaFunctionCount": 6596,
+    "unpackedIdaStringCount": 1745,
+    "imageBase": "0x400000",
+    "entryPoint": "0x401000",
+    "unpacker": "Unipacker 1.0.8",
+    "unpackerPython": "3.11.14",
+    "hostExecution": false
+  },
+  "iniSnapshot": {
+    "sha256": "369ED7837F909E15FB68C901CDCCE978A871ACAC60B8031BB2A351562ECE4927",
+    "bytes": 5101,
+    "encoding": "GB18030-compatible (Windows code page 936)",
+    "lineEnding": "CRLF",
+    "bom": false,
+    "status": "runtime-generated legacy snapshot",
+    "redactions": [
+      "N1053 payload replaced with synthetic DEMO command",
+      "N1080 port changed to COM99"
+    ]
+  },
+  "evidenceLevels": {
+    "static-confirmed": "Direct evidence in unpacked IDA database.",
+    "runtime-confirmed": "Observed from a real legacy execution trace.",
+    "unverified": "Not validated against runtime hardware or legacy GUI."
+  },
+  "limitations": [
+    "No physical serial device was connected during this analysis.",
+    "No legacy runtime trace was captured.",
+    "All checksum vectors are statically derived and not yet compared with the running legacy GUI.",
+    "ISP packet sequences are only mapped at entry-point level."
+  ]
+}

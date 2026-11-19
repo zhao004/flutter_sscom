@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "valid-default",
+      "file": "valid_default.ini",
+      "expectedWarnings": [],
+      "features": [
+        "GBK",
+        "CRLF",
+        "N1..N99",
+        "N101..N199",
+        "N1051..N1100",
+        "escaped-N1053"
+      ]
+    },
+    {
+      "id": "escaped-payload",
+      "file": "escaped_payload.ini",
+      "expectedWarnings": [],
+      "features": [
+        "0x02-comma",
+        "0x03-cr",
+        "0x04-lf"
+      ]
+    },
+    {
+      "id": "minimal-missing",
+      "file": "minimal_missing.ini",
+      "expectedWarnings": [
+        "missing-optional-keys"
+      ],
+      "features": [
+        "partial-file"
+      ]
+    },
+    {
+      "id": "invalid-values",
+      "file": "invalid_values.ini",
+      "expectedWarnings": [
+        "invalid-enum",
+        "invalid-integer",
+        "invalid-boolean",
+        "invalid-buffer"
+      ],
+      "features": [
+        "invalid-ranges"
+      ]
+    },
+    {
+      "id": "duplicate-unknown",
+      "file": "duplicate_unknown.ini",
+      "expectedWarnings": [
+        "duplicate-key",
+        "unknown-key"
+      ],
+      "features": [
+        "duplicate",
+        "unknown"
+      ]
+    },
+    {
+      "id": "nul-value",
+      "file": "nul_value.ini",
+      "expectedWarnings": [
+        "embedded-nul"
+      ],
+      "features": [
+        "nul"
+      ]
+    },
+    {
+      "id": "no-final-newline",
+      "file": "no_final_newline.ini",
+      "expectedWarnings": [
+        "missing-final-newline"
+      ],
+      "features": [
+        "tail-no-crlf"
+      ]
+    }
+  ]
+}

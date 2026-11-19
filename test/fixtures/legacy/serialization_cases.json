@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "kind": "static-derived",
+    "sendFunction": "0x4034A4",
+    "hexNibbleFunction": "0x402D3C",
+    "runtimeConfirmed": false
+  },
+  "textEscapeCases": [
+    {
+      "id": "named-escapes",
+      "input": "\\r\\n\\t\\v\\b\\f\\a\\0\\\\",
+      "expectedHex": "0D 0A 09 0B 08 0C 07 00 5C"
+    },
+    {
+      "id": "hex-escapes",
+      "input": "A\\x42\\x00\\xFF",
+      "expectedHex": "41 42 00 FF"
+    },
+    {
+      "id": "unknown-escape-preserved",
+      "input": "abc\\q",
+      "expectedHex": "61 62 63 5C 71"
+    },
+    {
+      "id": "trailing-backslash-preserved",
+      "input": "abc\\",
+      "expectedHex": "61 62 63 5C"
+    }
+  ],
+  "hexInputCases": [
+    {
+      "id": "spaced-uppercase",
+      "input": "12 FF 00 30",
+      "expectedHex": "12 FF 00 30"
+    },
+    {
+      "id": "mixed-case-and-whitespace",
+      "input": "0A0b 0c\r\n",
+      "expectedHex": "0A 0B 0C"
+    },
+    {
+      "id": "empty",
+      "input": "",
+      "expectedHex": ""
+    },
+    {
+      "id": "odd-nibble-invalid",
+      "input": "1",
+      "expectedError": "odd-nibble"
+    },
+    {
+      "id": "non-hex-invalid",
+      "input": "GG",
+      "expectedError": "invalid-character"
+    },
+    {
+      "id": "prefix-invalid",
+      "input": "0x12",
+      "expectedError": "invalid-character"
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+name: Windows 构建与发布
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # 与项目当前使用的 Flutter SDK 保持一致。
+  FLUTTER_VERSION: '3.47.9'
+
+jobs:
+  build:
+    name: 构建 Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      WINDOWS_RELEASE_DIR: build/windows/x64/runner/Release
+      PACKAGE_OUTPUT_DIR: .cache/windows-release
+    outputs:
+      package_name: ${{ steps.version.outputs.package_name }}
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: 校验版本与发布标签
+        id: version
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pubspec = Get-Content -LiteralPath 'pubspec.yaml' -Raw
+          $match = [regex]::Match($pubspec, '(?m)^version:\s*(\d+\.\d+\.\d+)(?:\+(\d+))?\s*$')
+          if (-not $match.Success) {
+            throw 'pubspec.yaml 的 version 必须为 x.y.z 或 x.y.z+构建号。'
+          }
+          $version = $match.Groups[1].Value
+          $buildNumber = if ($match.Groups[2].Success) { [int]$match.Groups[2].Value } else { 1 }
+          if ($buildNumber -lt 1 -or $buildNumber -gt 65535) {
+            throw 'Windows 构建号必须介于 1 和 65535 之间。'
+          }
+          foreach ($part in $version.Split('.')) {
+            if ([int]$part -gt 65535) { throw 'Windows 版本号的各部分不能超过 65535。' }
+          }
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_NAME -cne "v$version") {
+            throw "发布标签必须与 pubspec.yaml 的版本一致：v$version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+          "package_name=SSCOM-$version-build$buildNumber-windows-x64" >> $env:GITHUB_OUTPUT
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          architecture: x64
+          cache: true
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: 静态分析
+        run: flutter analyze --no-pub lib test
+
+      - name: 运行测试
+        run: flutter test --no-pub
+
+      - name: 编译 Windows Release
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: |
+          flutter build windows --release --no-pub --build-name "$env:APP_VERSION" --build-number "$env:APP_BUILD_NUMBER" --dart-define=SSCOM_SERIAL_BACKEND=libserialport
+
+      - name: 打包便携版与校验和
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          PACKAGE_NAME: ${{ steps.version.outputs.package_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releaseDirectory = Join-Path $env:GITHUB_WORKSPACE $env:WINDOWS_RELEASE_DIR
+          $outputDirectory = Join-Path $env:GITHUB_WORKSPACE $env:PACKAGE_OUTPUT_DIR
+          $bundleDirectory = Join-Path $outputDirectory $env:PACKAGE_NAME
+          foreach ($requiredFile in @('flutter_sscom.exe', 'flutter_windows.dll', 'data/icudtl.dat', 'data/app.so')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $releaseDirectory $requiredFile) -PathType Leaf)) {
+              throw "构建产物缺少必需文件：$requiredFile"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $releaseDirectory 'data/flutter_assets') -PathType Container)) {
+            throw '构建产物缺少 Flutter 资源目录。'
+          }
+          New-Item -ItemType Directory -Path $bundleDirectory -Force | Out-Null
+          # 保留完整运行目录，避免仅分发 EXE 导致 DLL 或资源缺失。
+          Copy-Item -Path (Join-Path $releaseDirectory '*') -Destination $bundleDirectory -Recurse -Force
+          Copy-Item -LiteralPath 'README.md' -Destination $bundleDirectory
+          $manifest = [ordered]@{
+            product = 'SSCOM'
+            version = $env:APP_VERSION
+            buildNumber = [int]$env:APP_BUILD_NUMBER
+            displayVersion = "$env:APP_VERSION+$env:APP_BUILD_NUMBER"
+            channel = 'release'
+            serialBackend = 'libserialport'
+            codeSigning = 'unsigned'
+            hardwareValidation = 'pending'
+            ispRealHardwareEnabled = $false
+            ispNote = '真实硬件 ISP 尚未完成验收；STC/IAP15 烧录保持禁用。'
+            sourceCommit = $env:GITHUB_SHA
+            builtAtUtc = [DateTime]::UtcNow.ToString('o')
+          }
+          $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $bundleDirectory 'release-manifest.json') -Encoding utf8
+          $archiveName = "$env:PACKAGE_NAME.zip"
+          $archivePath = Join-Path $outputDirectory $archiveName
+          Compress-Archive -LiteralPath $bundleDirectory -DestinationPath $archivePath -CompressionLevel Optimal
+          $checksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$checksum  $archiveName" | Set-Content -LiteralPath (Join-Path $outputDirectory "$env:PACKAGE_NAME-SHA256SUMS.txt") -Encoding utf8
+          @'
+          Windows x64 便携版。解压完整 ZIP 后运行 flutter_sscom.exe，请保留同目录的 DLL 和 data 目录。
+
+          本构建使用真实串口后端，尚未进行代码签名；硬件验收范围见包内 README。
+          目标电脑需要 Microsoft Visual C++ x64 运行库。附件提供 ZIP 的 SHA-256 校验和。
+          '@ | Set-Content -LiteralPath (Join-Path $outputDirectory 'release-notes.md') -Encoding utf8
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ steps.version.outputs.package_name }}
+          path: |
+            .cache/windows-release/*.zip
+            .cache/windows-release/*-SHA256SUMS.txt
+            .cache/windows-release/release-notes.md
+          if-no-files-found: error
+          # 暂存目录位于 .cache，仅允许上传上面明确列出的发布文件。
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: 发布 GitHub Release
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # 只有发布任务拥有仓库写权限，手动构建仅上传 Actions 产物。
+    permissions:
+      contents: write
+    steps:
+      - name: 下载 Windows 发布包
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.build.outputs.package_name }}
+          path: .cache/windows-release
+
+      - name: 校验并发布
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          PACKAGE_NAME: ${{ needs.build.outputs.package_name }}
+        run: |
+          set -euo pipefail
+          cd .cache/windows-release
+          sha256sum --check "${PACKAGE_NAME}-SHA256SUMS.txt"
+          gh release create "$RELEASE_TAG" \
+            "${PACKAGE_NAME}.zip" \
+            "${PACKAGE_NAME}-SHA256SUMS.txt" \
+            --verify-tag \
+            --title "SSCOM $RELEASE_TAG" \
+            --notes-file release-notes.md
