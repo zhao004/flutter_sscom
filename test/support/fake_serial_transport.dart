@@ -155,8 +155,12 @@ final class FakeSerialTransport implements SerialTransport {
     );
     _sentBatches.add(batch);
     _sendResults.add(result);
+    await sendHandler?.call(batch);
     return result;
   }
+
+  /// 为协议集成测试注入目标设备响应，仍保留短写与发送记录。
+  Future<void> Function(Uint8List bytes)? sendHandler;
 
   @override
   Future<List<SerialPortInfo>> listPorts() async {

@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_sscom/core/protocols/protocols.dart';
+import 'package:flutter_sscom/core/isp/isp_protocol.dart';
+import 'package:flutter_sscom/core/isp/stm32_bootloader_simulator.dart';
 import 'package:flutter_sscom/core/transport/transport_barrel.dart';
 import 'package:flutter_sscom/features/isp/application/isp_controller.dart';
 import 'package:flutter_sscom/features/terminal/application/terminal_controller.dart';
@@ -10,6 +12,94 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/fake_serial_transport.dart';
 
 void main() {
+  for (final validVector in [true, false]) {
+    test(validVector ? '控制器向 Go 发送向量表基址而非 HEX 入口' : '无效启动向量在全片擦除前拒绝', () async {
+      final simulator = Stm32BootloaderSimulator();
+      final serial = FakeSerialTransport(
+        initialPorts: const [
+          SerialPortInfo(
+            systemPath: 'COM1',
+            displayName: 'COM1',
+            isAvailable: true,
+          ),
+        ],
+      );
+      serial.sendHandler = (bytes) async {
+        await simulator.write(bytes);
+        final response = <int>[];
+        while (true) {
+          try {
+            response.addAll(
+              await simulator.readExact(1, timeout: const Duration(seconds: 1)),
+            );
+          } on IspException catch (error) {
+            if (error.code != IspErrorCode.timeout) {
+              rethrow;
+            }
+            break;
+          }
+        }
+        if (response.isNotEmpty) {
+          serial.injectData(Uint8List.fromList(response));
+        }
+      };
+      final vectors = Uint8List(12);
+      ByteData.sublistView(vectors)
+        ..setUint32(0, 0x20001000, Endian.little)
+        ..setUint32(4, validVector ? 0x08001009 : 0x08001008, Endian.little);
+      final firmware = [
+        _record(0, 4, [8, 0]),
+        _record(0x1000, 0, vectors),
+        _record(0, 5, [8, 0, 0x10, 9]),
+        _record(0, 1, []),
+      ].join('\n');
+      final terminal = TerminalController(
+        transport: serial,
+        textEncoder: const Utf8TextByteEncoder(),
+        backendLabel: '模拟设备',
+        initialConfig: const SerialConfig(
+          portName: 'COM1',
+          baudRate: 115200,
+          parity: SerialParity.even,
+        ),
+      );
+      final controller = IspController(
+        terminal: terminal,
+        firmwareBytesReader: (_) async =>
+            Uint8List.fromList(firmware.codeUnits),
+      );
+      try {
+        await terminal.initialize();
+        await terminal.open();
+        await controller.loadFirmware(File('application.hex'));
+        controller.setRunAfterProgramming(true);
+        await controller.inspectDevice();
+        expect(controller.state.value.phase, IspPhase.ready);
+        await controller.program();
+        if (validVector) {
+          expect(controller.state.value.phase, IspPhase.completed);
+          expect(simulator.startedAddress, 0x08001000);
+        } else {
+          expect(controller.state.value.phase, IspPhase.failed);
+          expect(controller.state.value.errorMessage, contains('向量表无效'));
+          expect(
+            serial.sentBatches.any(
+              (batch) =>
+                  batch.length == 2 &&
+                  (batch.first == 0x43 || batch.first == 0x44),
+            ),
+            isFalse,
+          );
+          expect(simulator.startedAddress, isNull);
+        }
+      } finally {
+        await controller.dispose();
+        await terminal.dispose();
+        await simulator.close();
+      }
+    });
+  }
+
   test('STM32 模拟器完成识别、烧录、校验和启动', () async {
     final controller = IspController(
       terminal: TerminalController(
@@ -131,4 +221,10 @@ void main() {
       await terminal.dispose();
     }
   });
+}
+
+String _record(int address, int type, List<int> data) {
+  final bytes = [data.length, address >> 8, address & 255, type, ...data];
+  bytes.add(-bytes.fold<int>(0, (sum, byte) => sum + byte) & 255);
+  return ':${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
 }

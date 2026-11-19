@@ -234,6 +234,11 @@ final class Stm32BootloaderSimulator implements IspLink {
       return true;
     }
     _writeAddress = _decodeAddress(packet);
+    if (_writeAddress % 4 != 0 || !_isWritable(_writeAddress, 4)) {
+      _output.add(0x1F);
+      _mode = _SimulatorMode.command;
+      return true;
+    }
     _output.add(0x79);
     _mode = _SimulatorMode.writeLength;
     return true;
@@ -263,7 +268,9 @@ final class Stm32BootloaderSimulator implements IspLink {
     for (final byte in data) {
       expected ^= byte;
     }
-    if (checksum != expected || !_isWritable(_writeAddress, data.length)) {
+    if (checksum != expected ||
+        data.length % 4 != 0 ||
+        !_isWritable(_writeAddress, data.length)) {
       _output.add(0x1F);
       _mode = _SimulatorMode.command;
       return true;

@@ -49,8 +49,12 @@ final class Stm32IspOptions {
         flashStartAddress + flashSizeBytes > 0x100000000) {
       throw ArgumentError.value(flashSizeBytes, 'flashSizeBytes');
     }
-    if (blockSize <= 0 || blockSize > 256) {
-      throw ArgumentError.value(blockSize, 'blockSize', '块大小必须在 1 到 256 之间');
+    if (blockSize < 4 || blockSize > 256 || blockSize % 4 != 0) {
+      throw ArgumentError.value(
+        blockSize,
+        'blockSize',
+        '块大小必须为 4 到 256 之间的 4 的倍数',
+      );
     }
     if (syncAttempts <= 0) {
       throw ArgumentError.value(syncAttempts, 'syncAttempts');
@@ -215,6 +219,83 @@ final class Stm32BootloaderClient {
     }
   }
 
+  /// 在擦除前生成按 32 位字对齐的镜像，并重新校验填充后的范围。
+  ///
+  /// 相邻稀疏段可能落在同一个字内，必须先合并再写入，避免填充覆盖真实数据。
+  /// 未定义字节填充为擦除态 0xFF；不跨越整字间隙分配大块内存。
+  FirmwareImage prepareImage(FirmwareImage image) {
+    validateImage(image);
+    if (image.segments.every(
+      (segment) =>
+          segment.startAddress % 4 == 0 && segment.bytes.length % 4 == 0,
+    )) {
+      return image;
+    }
+    final normalized = <FirmwareSegment>[];
+    var first = 0;
+    while (first < image.segments.length) {
+      final start = image.segments[first].startAddress & ~3;
+      var end = (image.segments[first].endAddressExclusive + 3) & ~3;
+      var next = first + 1;
+      while (next < image.segments.length &&
+          (image.segments[next].startAddress & ~3) <= end) {
+        end = (image.segments[next].endAddressExclusive + 3) & ~3;
+        next++;
+      }
+      if (start < options.flashStartAddress ||
+          end > options.flashEndAddressExclusive) {
+        throw const IspException(
+          code: IspErrorCode.addressOutOfRange,
+          message: '固件按字对齐并填充后超出 Flash 范围',
+        );
+      }
+      final data = Uint8List(end - start)..fillRange(0, end - start, 0xFF);
+      for (var index = first; index < next; index++) {
+        final segment = image.segments[index];
+        final offset = segment.startAddress - start;
+        data.setRange(offset, offset + segment.bytes.length, segment.bytes);
+      }
+      normalized.add(FirmwareSegment(startAddress: start, bytes: data));
+      first = next;
+    }
+    return FirmwareImage(segments: normalized, entryPoint: image.entryPoint);
+  }
+
+  /// 校验镜像最低地址处的应用向量表，返回 Go 命令需要的基址。
+  ///
+  /// HEX 的入口记录表示执行入口，不能代替向量表。未配置 SRAM 型号范围，
+  /// 因此只检查 MSP 的基本格式；复位向量必须为镜像内的 Thumb 地址。
+  int applicationVectorAddress(FirmwareImage image) {
+    validateImage(image);
+    final first = image.segments.first;
+    if (first.startAddress % 4 != 0 || first.bytes.length < 8) {
+      throw const IspException(
+        code: IspErrorCode.framing,
+        message: '应用向量表必须按字对齐且包含完整的 MSP 和复位向量',
+      );
+    }
+    final vectors = ByteData.sublistView(first.bytes);
+    final stack = vectors.getUint32(0, Endian.little);
+    final reset = vectors.getUint32(4, Endian.little);
+    final resetAddress = reset & ~1;
+    if (stack == 0 ||
+        stack == 0xFFFFFFFF ||
+        stack % 4 != 0 ||
+        reset & 1 == 0 ||
+        !image.segments.any(
+          (segment) =>
+              resetAddress >= segment.startAddress &&
+              resetAddress + 2 <= segment.endAddressExclusive,
+        )) {
+      throw const IspException(
+        code: IspErrorCode.framing,
+        message: '应用向量表无效：MSP 格式错误或复位向量未指向固件内的 Thumb 指令',
+      );
+    }
+    _requireCommand(commandGo);
+    return first.startAddress;
+  }
+
   /// 执行全片擦除。
   Future<void> eraseAll({IspCancellationToken? cancellation}) async {
     cancellation?.throwIfCancelled();
@@ -236,8 +317,8 @@ final class Stm32BootloaderClient {
     IspProgressCallback? onProgress,
     IspCancellationToken? cancellation,
   }) async {
-    validateImage(image);
-    final total = image.totalBytes;
+    final prepared = prepareImage(image);
+    final total = prepared.totalBytes;
     var completed = 0;
     onProgress?.call(
       IspProgress(
@@ -246,7 +327,7 @@ final class Stm32BootloaderClient {
         totalBytes: total,
       ),
     );
-    for (final segment in image.segments) {
+    for (final segment in prepared.segments) {
       var offset = 0;
       while (offset < segment.bytes.length) {
         cancellation?.throwIfCancelled();
@@ -348,13 +429,23 @@ final class Stm32BootloaderClient {
     return _readBytes(length, 'Read Memory 数据');
   }
 
-  /// 写入最多 256 字节 Flash。
+  /// 写入最多 256 字节 Flash；地址和长度必须按 32 位字对齐。
   Future<void> writeMemory(int address, Uint8List data) async {
     if (data.isEmpty || data.length > 256) {
       throw ArgumentError.value(
         data.length,
         'data.length',
         '单次写入长度必须在 1 到 256 之间',
+      );
+    }
+    if (address % 4 != 0 || data.length % 4 != 0) {
+      throw ArgumentError('Write Memory 地址和长度必须为 4 的倍数');
+    }
+    if (address < options.flashStartAddress ||
+        address + data.length > options.flashEndAddressExclusive) {
+      throw const IspException(
+        code: IspErrorCode.addressOutOfRange,
+        message: '写入范围超出 Flash 范围',
       );
     }
     _requireCommand(commandWriteMemory);

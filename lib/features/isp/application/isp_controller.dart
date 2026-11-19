@@ -214,12 +214,6 @@ final class IspViewState {
             '超出配置 Flash 范围';
       }
     }
-    final entry = currentImage.entryPoint;
-    if (runAfterProgramming &&
-        entry != null &&
-        (entry < flashStartAddress || entry >= flashEndAddressExclusive)) {
-      return '入口地址 0x${entry.toRadixString(16)} 超出配置 Flash 范围';
-    }
     return null;
   }
 
@@ -567,6 +561,10 @@ final class IspController {
     _cancellation = cancellation;
     _lastProgressBucket = -1;
     try {
+      final prepared = client.prepareImage(image);
+      final vectorAddress = current.runAfterProgramming
+          ? client.applicationVectorAddress(image)
+          : null;
       _state.value = _state.value.copyWith(
         phase: IspPhase.erasing,
         progressPhase: IspOperationPhase.erasing,
@@ -578,17 +576,16 @@ final class IspController {
       await client.eraseAll(cancellation: cancellation);
       _state.value = _state.value.copyWith(completedBytes: 1, totalBytes: 1);
       await client.writeImage(
-        image,
+        prepared,
         cancellation: cancellation,
         onProgress: _handleProgress,
       );
       await client.verifyImage(
-        image,
+        prepared,
         cancellation: cancellation,
         onProgress: _handleProgress,
       );
       if (current.runAfterProgramming) {
-        final address = image.entryPoint ?? image.minimumAddress;
         _state.value = _state.value.copyWith(
           phase: IspPhase.starting,
           progressPhase: IspOperationPhase.starting,
@@ -596,7 +593,7 @@ final class IspController {
           totalBytes: 1,
           message: '正在启动目标程序',
         );
-        await client.go(address, cancellation: cancellation);
+        await client.go(vectorAddress!, cancellation: cancellation);
         _state.value = _state.value.copyWith(completedBytes: 1, totalBytes: 1);
       }
       _state.value = _state.value.copyWith(
