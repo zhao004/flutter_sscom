@@ -10,6 +10,7 @@ import 'package:flutter_sscom/features/terminal/application/terminal_controller.
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_serial_transport.dart';
+import '../support/fake_transport.dart';
 
 const _port = SerialPortInfo(
   systemPath: 'COM1',
@@ -60,6 +61,73 @@ void main() {
         transport.sentBatches.expand((batch) => batch),
         orderedEquals(bytes),
       );
+    });
+
+    test('取消受阻文件发送会关闭连接并回收文件句柄', () async {
+      final file = await File('${directory.path}/blocked.bin')
+          .writeAsBytes([1, 2, 3]);
+      final factory = RecordingTransportFactory(blockSends: true);
+      final terminal = TerminalController(
+        transport: FakeSerialTransport(),
+        textEncoder: const Utf8TextByteEncoder(),
+        backendLabel: '测试网络',
+        networkTransportFactory: factory,
+        initialTransportMode: TransportMode.tcpClient,
+        initialRemoteHost: '127.0.0.1',
+        initialRemotePort: 6001,
+      );
+      final fileSend = FileSendController(terminal: terminal);
+      await terminal.initialize();
+      await terminal.open();
+      final operation = fileSend.start(file);
+      await factory.transports.single.sendStarted.future;
+      try {
+        await fileSend.cancel().timeout(const Duration(seconds: 2));
+        await operation;
+        expect(fileSend.state.value.phase, FileSendPhase.cancelled);
+        expect(fileSend.state.value.sentBytes, 0);
+        expect(terminal.state.value.isSending, isFalse);
+        expect(factory.transports.single.isDisposed, isTrue);
+        await file.rename('${directory.path}/released.bin');
+      } finally {
+        await factory.transports.single.close();
+        await operation;
+        await fileSend.dispose();
+        await terminal.dispose();
+      }
+    });
+
+    test('取消尚未发送分块的文件任务不打断其他发送', () async {
+      final file = await File('${directory.path}/queued.bin').writeAsBytes([1]);
+      final factory = RecordingTransportFactory(blockSends: true);
+      final terminal = TerminalController(
+        transport: FakeSerialTransport(),
+        textEncoder: const Utf8TextByteEncoder(),
+        backendLabel: '测试网络',
+        networkTransportFactory: factory,
+        initialTransportMode: TransportMode.tcpClient,
+        initialRemoteHost: '127.0.0.1',
+        initialRemotePort: 6001,
+      );
+      final fileSend = FileSendController(terminal: terminal);
+      await terminal.initialize();
+      await terminal.open();
+      final otherSend = terminal.sendBytes(Uint8List.fromList([2]));
+      await factory.transports.single.sendStarted.future;
+      final operation = fileSend.start(file);
+      try {
+        await fileSend.cancel().timeout(const Duration(seconds: 2));
+        await operation;
+        expect(fileSend.state.value.phase, FileSendPhase.cancelled);
+        expect(factory.transports.single.wasClosed, isFalse);
+        expect(terminal.state.value.isSending, isTrue);
+      } finally {
+        await terminal.close();
+        await otherSend;
+        await operation;
+        await fileSend.dispose();
+        await terminal.dispose();
+      }
     });
 
     test('ISP 独占串口时拒绝发送文件', () async {

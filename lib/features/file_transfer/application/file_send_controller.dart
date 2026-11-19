@@ -66,8 +66,8 @@ final class FileSendState {
 /// 将文件分块写入串口传输层。
 ///
 /// 文件发送不经过终端输入编码和校验追加，适合固件、日志等二进制文件。每次
-/// 读取只保留一个分块，发送进度通过状态信号驱动表现层；取消会在当前分块
-/// 发送完成后停止，避免把下一个分块带入传输层。
+/// 读取只保留一个分块，发送进度通过状态信号驱动表现层；取消受阻发送时
+/// 关闭连接，以解除传输层等待并回收文件句柄。
 final class FileSendController {
   /// 创建文件发送控制器。
   FileSendController({required this.terminal, this.chunkSize = 4096})
@@ -88,6 +88,7 @@ final class FileSendController {
   late final ReadonlySignal<FileSendState> _readonlyState;
   Future<void>? _operation;
   bool _cancelRequested = false;
+  bool _sendingChunk = false;
   bool _disposed = false;
 
   /// 只读发送状态。
@@ -109,9 +110,12 @@ final class FileSendController {
     });
   }
 
-  /// 请求取消当前文件发送。
+  /// 取消文件发送；存在正在发送的分块时会关闭连接以中止等待。
   Future<void> cancel() async {
     _cancelRequested = true;
+    if (_sendingChunk) {
+      await terminal.close();
+    }
     await _operation;
   }
 
@@ -120,9 +124,8 @@ final class FileSendController {
     if (_disposed) {
       return;
     }
-    _cancelRequested = true;
     try {
-      await _operation;
+      await cancel();
     } finally {
       _disposed = true;
       _state.dispose();
@@ -168,10 +171,16 @@ final class FileSendController {
           return;
         }
         final chunk = await handle.read(chunkSize);
+        if (_cancelRequested) {
+          continue;
+        }
         if (chunk.isEmpty) {
           break;
         }
-        final result = await terminal.sendBytes(chunk);
+        _sendingChunk = true;
+        final result = await terminal.sendBytes(chunk).whenComplete(() {
+          _sendingChunk = false;
+        });
         if (result == null) {
           throw StateError(terminal.state.value.errorMessage ?? '文件分块发送失败');
         }
@@ -199,12 +208,14 @@ final class FileSendController {
       );
     } catch (error) {
       _state.value = FileSendState(
-        phase: FileSendPhase.failed,
+        phase: _cancelRequested
+            ? FileSendPhase.cancelled
+            : FileSendPhase.failed,
         filePath: file.path,
         fileName: fileName,
         totalBytes: totalBytes,
         sentBytes: sentBytes,
-        errorMessage: _messageFor(error),
+        errorMessage: _cancelRequested ? null : _messageFor(error),
       );
     } finally {
       await handle?.close();

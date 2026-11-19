@@ -7,6 +7,40 @@ import 'package:flutter_sscom/features/connection/infrastructure/tcp_client_tran
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('TCP 对端不读取时关闭能中止受阻发送且不留下异步异常', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final accepted = Completer<Socket>();
+    final subscription = server.listen(accepted.complete);
+    final transport = TcpClientTransport(host: '127.0.0.1', port: server.port);
+    Socket? peer;
+    try {
+      await transport.open();
+      peer = await accepted.future;
+      var completed = false;
+      final send = transport.send(Uint8List(32 * 1024 * 1024));
+      final checked = expectLater(send, throwsA(isA<TransportException>()));
+      unawaited(
+        send.then<void>(
+          (_) {
+            completed = true;
+          },
+          onError: (Object _) {
+            completed = true;
+          },
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(completed, isFalse);
+      await transport.dispose().timeout(const Duration(seconds: 2));
+      await checked.timeout(const Duration(seconds: 2));
+    } finally {
+      peer?.destroy();
+      await transport.dispose();
+      await subscription.cancel();
+      await server.close();
+    }
+  });
+
   test('TCP 客户端完成回环连接、双向收发和有序关闭', () async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final accepted = Completer<Socket>();

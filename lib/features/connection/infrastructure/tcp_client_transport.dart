@@ -32,6 +32,7 @@ final class TcpClientTransport implements Transport {
       StreamController<TransportEvent>.broadcast(sync: true);
 
   Socket? _socket;
+  final Set<Completer<void>> _pendingSends = <Completer<void>>{};
   StreamSubscription<Uint8List>? _socketSubscription;
   TransportStatus _status = TransportStatus.disconnected;
   bool _disposed = false;
@@ -98,9 +99,19 @@ final class TcpClientTransport implements Transport {
     if (_status != TransportStatus.connected || socket == null) {
       throw _exception(TransportErrorCode.disconnected, 'TCP 尚未连接，不能发送数据');
     }
+    final aborted = Completer<void>();
+    _pendingSends.add(aborted);
     try {
       socket.add(bytes);
-      await socket.flush();
+      await Future.any<void>([
+        socket.flush(),
+        aborted.future.then<void>((_) {
+          throw _exception(TransportErrorCode.disconnected, 'TCP 发送已因连接关闭而中止');
+        }),
+      ]);
+      if (!identical(_socket, socket)) {
+        throw _exception(TransportErrorCode.disconnected, 'TCP 连接已关闭');
+      }
       return SendResult(
         requestedLength: bytes.length,
         acceptedLength: bytes.length,
@@ -112,10 +123,14 @@ final class TcpClientTransport implements Transport {
         fallbackCode: TransportErrorCode.writeFailed,
         message: 'TCP 数据发送失败',
       );
-      _status = TransportStatus.error;
-      _events.add(TransportErrorEvent(failure));
-      await _releaseSocket(emitDisconnected: false);
+      if (!_disposed && !_closing && identical(_socket, socket)) {
+        _status = TransportStatus.error;
+        _events.add(TransportErrorEvent(failure));
+        await _releaseSocket(emitDisconnected: false);
+      }
       throw TransportException(failure);
+    } finally {
+      _pendingSends.remove(aborted);
     }
   }
 
@@ -177,6 +192,13 @@ final class TcpClientTransport implements Transport {
   }
 
   Future<void> _releaseSocket({required bool emitDisconnected}) async {
+    final socket = _socket;
+    _socket = null;
+    for (final aborted in _pendingSends) {
+      aborted.complete();
+    }
+    _pendingSends.clear();
+    socket?.destroy();
     final subscription = _socketSubscription;
     _socketSubscription = null;
     if (subscription != null) {
@@ -186,9 +208,6 @@ final class TcpClientTransport implements Transport {
         // socket 已断开时取消订阅可能失败，后续仍必须释放底层句柄。
       }
     }
-    final socket = _socket;
-    _socket = null;
-    socket?.destroy();
     if (emitDisconnected && !_disposed) {
       _events.add(TransportDisconnectedEvent());
     }

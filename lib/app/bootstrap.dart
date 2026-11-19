@@ -90,6 +90,14 @@ Future<void> _shutdownDependencies({
     }
   }
 
+  // 先中止活动传输，解除 flush 等待，再回收依赖终端状态的发送任务。
+  // ISP 会话需要先释放独占权，终端状态信号则保留到所有控制器退出之后。
+  await disposeSafely(() async {
+    if (container.isRegistered<IspController>()) {
+      await container<IspController>().dispose();
+    }
+  });
+  await disposeSafely(controller.close);
   await disposeSafely(() async {
     if (container.isRegistered<MultiSendController>()) {
       await container<MultiSendController>().dispose();
@@ -108,11 +116,6 @@ Future<void> _shutdownDependencies({
   await disposeSafely(() async {
     if (container.isRegistered<WaveformController>()) {
       await container<WaveformController>().dispose();
-    }
-  });
-  await disposeSafely(() async {
-    if (container.isRegistered<IspController>()) {
-      await container<IspController>().dispose();
     }
   });
   await disposeSafely(() async {

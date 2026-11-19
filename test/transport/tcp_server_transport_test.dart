@@ -7,6 +7,42 @@ import 'package:flutter_sscom/features/connection/infrastructure/tcp_server_tran
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('TCP 服务端关闭能解除受阻发送并释放监听端口', () async {
+    final transport = TcpServerTransport(bindAddress: '127.0.0.1', port: 0);
+    Socket? peer;
+    try {
+      await transport.open();
+      final port = transport.boundPort!;
+      final connected = transport.events.firstWhere(
+        (event) => event is TransportConnectedEvent,
+      );
+      peer = await Socket.connect('127.0.0.1', port);
+      await connected;
+      var completed = false;
+      final send = transport.send(Uint8List(32 * 1024 * 1024));
+      final checked = expectLater(send, throwsA(isA<TransportException>()));
+      unawaited(
+        send.then<void>(
+          (_) {
+            completed = true;
+          },
+          onError: (Object _) {
+            completed = true;
+          },
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(completed, isFalse);
+      await transport.dispose().timeout(const Duration(seconds: 2));
+      await checked.timeout(const Duration(seconds: 2));
+      final rebound = await ServerSocket.bind('127.0.0.1', port);
+      await rebound.close();
+    } finally {
+      peer?.destroy();
+      await transport.dispose();
+    }
+  });
+
   test('TCP 服务端监听单客户端并支持双向收发和断线后继续监听', () async {
     final transport = TcpServerTransport(
       bindAddress: InternetAddress.loopbackIPv4.address,

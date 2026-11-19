@@ -9,6 +9,7 @@ final class FakeTransport implements Transport {
   FakeTransport({
     this.openStatus = TransportStatus.connected,
     this.detail = '已连接测试传输',
+    this.blockSends = false,
   });
 
   /// 打开成功后的状态。
@@ -16,6 +17,11 @@ final class FakeTransport implements Transport {
 
   /// 打开或监听事件说明。
   final String detail;
+
+  /// 模拟对端停止读取，只有关闭连接才能解除发送等待。
+  final bool blockSends;
+  final Completer<void> sendStarted = Completer<void>();
+  final Completer<void> _sendInterrupted = Completer<void>();
 
   final StreamController<TransportEvent> _events =
       StreamController<TransportEvent>.broadcast(sync: true);
@@ -59,6 +65,9 @@ final class FakeTransport implements Transport {
       return;
     }
     _status = TransportStatus.disconnected;
+    if (!_sendInterrupted.isCompleted) {
+      _sendInterrupted.complete();
+    }
     _events.add(TransportDisconnectedEvent());
   }
 
@@ -83,6 +92,13 @@ final class FakeTransport implements Transport {
       );
     }
     sentBatches.add(Uint8List.fromList(bytes));
+    if (!sendStarted.isCompleted) {
+      sendStarted.complete();
+    }
+    if (blockSends) {
+      await _sendInterrupted.future;
+      throw StateError('发送被关闭连接中止');
+    }
     return SendResult(
       requestedLength: bytes.length,
       acceptedLength: bytes.length,
@@ -104,6 +120,10 @@ final class FakeTransport implements Transport {
 
 /// 记录配置并按顺序创建 [FakeTransport] 的工厂。
 final class RecordingTransportFactory implements TransportFactory {
+  RecordingTransportFactory({this.blockSends = false});
+
+  final bool blockSends;
+
   /// 已创建的配置。
   final List<TransportConfig> configs = <TransportConfig>[];
 
@@ -114,6 +134,7 @@ final class RecordingTransportFactory implements TransportFactory {
   Transport create(TransportConfig config) {
     configs.add(config);
     final transport = FakeTransport(
+      blockSends: blockSends,
       openStatus: config is TcpServerTransportConfig
           ? TransportStatus.listening
           : TransportStatus.connected,
