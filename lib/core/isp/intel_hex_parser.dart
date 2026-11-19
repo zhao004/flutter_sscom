@@ -158,46 +158,30 @@ final class IntelHexParser {
     records.sort(
       (left, right) => left.startAddress.compareTo(right.startAddress),
     );
-    final merged = <_ParsedSegment>[];
+    final merged = <FirmwareSegment>[];
+    var groupStart = records.first.startAddress;
+    var groupEnd = groupStart;
+    final builder = BytesBuilder(copy: false);
     for (final record in records) {
-      if (merged.isEmpty) {
-        merged.add(record);
-        continue;
-      }
-      final previous = merged.last;
-      if (record.startAddress < previous.endAddressExclusive) {
+      if (record.startAddress < groupEnd) {
         throw IntelHexFormatException(
           '数据地址 0x${record.startAddress.toRadixString(16)} 与已有记录重叠',
         );
       }
-      if (record.startAddress == previous.endAddressExclusive) {
-        final combined = Uint8List(previous.bytes.length + record.bytes.length)
-          ..setRange(0, previous.bytes.length, previous.bytes)
-          ..setRange(
-            previous.bytes.length,
-            previous.bytes.length + record.bytes.length,
-            record.bytes,
-          );
-        merged[merged.length - 1] = _ParsedSegment(
-          startAddress: previous.startAddress,
-          bytes: combined,
+      if (record.startAddress > groupEnd) {
+        merged.add(
+          FirmwareSegment(startAddress: groupStart, bytes: builder.takeBytes()),
         );
-      } else {
-        merged.add(record);
+        groupStart = record.startAddress;
       }
+      builder.add(record.bytes);
+      groupEnd = record.endAddressExclusive;
     }
-
-    return FirmwareImage(
-      segments: merged
-          .map(
-            (record) => FirmwareSegment(
-              startAddress: record.startAddress,
-              bytes: record.bytes,
-            ),
-          )
-          .toList(growable: false),
-      entryPoint: entryPoint,
+    merged.add(
+      FirmwareSegment(startAddress: groupStart, bytes: builder.takeBytes()),
     );
+
+    return FirmwareImage(segments: merged, entryPoint: entryPoint);
   }
 
   void _requireLength(

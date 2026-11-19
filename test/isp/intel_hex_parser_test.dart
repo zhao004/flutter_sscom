@@ -3,6 +3,35 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('IntelHexParser', () {
+    test('合并 1 MiB 连续短记录并保留乱序输入中的间隙', () {
+      final source = StringBuffer();
+      for (var page = 0; page < 16; page++) {
+        source.writeln(_record(0, 4, [0x08, page]));
+        // 每个地址页中的记录逆序，合并必须以地址排序结果为准。
+        for (var offset = 65520; offset >= 0; offset -= 16) {
+          source.writeln(
+            _record(
+              offset,
+              0,
+              List<int>.generate(16, (index) => (offset + index) & 255),
+            ),
+          );
+        }
+      }
+      source.writeln(_record(0, 4, [0x08, 0x11]));
+      source.writeln(_record(0, 0, [0xAA]));
+      source.writeln(_eof());
+      final image = parseIntelHex(source.toString());
+      expect(image.segmentCount, 2);
+      expect(image.segments.first.bytes.length, 1024 * 1024);
+      expect(
+        image.segments.first.bytes,
+        orderedEquals(List<int>.generate(1024 * 1024, (index) => index & 255)),
+      );
+      expect(image.segments.last.startAddress, 0x08110000);
+      expect(image.segments.last.bytes, [0xAA]);
+    });
+
     test('解析扩展线性地址、连续记录和起始线性地址', () {
       final source = <String>[
         _record(0x0000, 0x04, <int>[0x00, 0x01]),
